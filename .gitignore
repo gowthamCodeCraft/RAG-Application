@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+#practice typesense.ipynb
+typesense.ipynb
+books.jsonl

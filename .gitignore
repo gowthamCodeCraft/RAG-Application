@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# api keys and config
+.env
+
 #practice typesense.ipynb
 typesense.ipynb
 books.jsonl

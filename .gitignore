@@ -12,8 +12,6 @@ wheels/
 # Secrets
 .env
 
-# Notebooks
-*typesense.ipynb
-
-# Data files
-*.jsonl
+#folders
+notebook/
+faiss_store/

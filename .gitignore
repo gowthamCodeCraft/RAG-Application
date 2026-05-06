@@ -14,4 +14,4 @@ wheels/
 
 #folders
 notebook/
-faiss_store/
+node_modules/

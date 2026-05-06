@@ -1,0 +1,15 @@
+{
+  "name": "rag-assistant",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "client": "cd frontend && npm run dev",
+    "server": "cd backend && uvicorn main:app --reload --port 8000",
+    "dev:client": "cd frontend && npm run dev",
+    "dev:server": "cd backend && uvicorn main:app --reload --port 8000"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

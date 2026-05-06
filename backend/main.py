@@ -3,6 +3,7 @@ import shutil
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from src.search import RAGSearch
 from groq import Groq
@@ -83,6 +84,27 @@ async def voice_query(file: UploadFile = File(...)):
         "transcribed_text": text,
         **result
     }
+
+# ===================== Streaming ======================
+
+@app.post("/api/query-stream")
+async def query_stream(request: dict):
+
+    query = request.get("query")
+
+    def generate():
+        try:
+            for chunk in chat_rag.llm.stream([query]):   # adjust to your pipeline
+                if hasattr(chunk, "content"):
+                    yield chunk.content
+                else:
+                    yield str(chunk)
+
+        except Exception as e:
+            print("STREAM ERROR:", e)
+            yield "\n[Error generating response]"
+
+    return StreamingResponse(generate(), media_type="text/plain")
 
 if __name__ == "__main__":
     import uvicorn

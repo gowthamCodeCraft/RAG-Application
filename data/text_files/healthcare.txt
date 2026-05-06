@@ -1,5 +1,0 @@
-Healthcare organizations use generative AI to improve patient care and streamline operations:
-    Healthcare providers use generative AI to create personalized treatment plans for patients, improving outcomes and reducing costs
-    Medical researchers use generative AI to analyze large datasets and identify potential drug candidates, accelerating the
-
-    

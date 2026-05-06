@@ -1,305 +1,301 @@
 import { useState, useRef, useEffect } from "react";
-import axios from "axios";
-import {
-  Upload,
-  Mic,
-  Send,
-  Bot,
-  User,
-  FileText,
-} from "lucide-react";
+import { Upload, Mic, Send, Sparkles, Copy, Plus } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
 
 const API_BASE = "http://127.0.0.1:8000";
 
+interface Citation {
+  source: string;
+  page: number;
+  score?: number;
+}
+
 interface Message {
   id: string;
   type: "user" | "bot";
   content: string;
-  citations?: any[];
-  timestamp: Date;
+  citations?: Citation[];
+  time: string;
 }
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isIndexing, setIsIndexing] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [thinkingStep, setThinkingStep] = useState("");
 
+  const chatRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
-  // ✅ Load chat history
+  // Auto scroll
   useEffect(() => {
-    const saved = localStorage.getItem("chat");
-    if (saved) setMessages(JSON.parse(saved));
-  }, []);
-
-  // ✅ Save chat history
-  useEffect(() => {
-    localStorage.setItem("chat", JSON.stringify(messages));
-    chatContainerRef.current?.scrollTo({
-      top: chatContainerRef.current.scrollHeight,
+    chatRef.current?.scrollTo({
+      top: chatRef.current.scrollHeight,
       behavior: "smooth",
     });
   }, [messages]);
 
-  // ✅ Fake typing effect
-  const typeText = async (text: string, id: string) => {
-    let current = "";
-    for (let char of text) {
-      current += char;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id ? { ...m, content: current } : m
-        )
-      );
-      await new Promise((r) => setTimeout(r, 10));
+  // Voice Input
+  const handleVoiceToggle = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
     }
-  };
 
-  const sendMessage = async () => {
-    console.log("Sending request..."); 
-    if (!input.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: "user",
-      content: input,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-
-    try {
-      const res = await axios.post(`${API_BASE}/api/query`, {
-      query: input,
-      top_k: 5
-    });
-
-      console.log("FULL RESPONSE:", res);
-      console.log("DATA:", res.data);
-
-      const botId = (Date.now() + 1).toString();
-
-      const botMessage: Message = {
-        id: botId,
-        type: "bot",
-        content: res.data.answer || "No answer available.",
-        citations: res.data.sources || [],
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, botMessage]);
-
-      await typeText(res.data.answer, botId);
-    } catch (error : any) {
-      console.error("API ERROR:", error.response?.data || error.message);
-      toast.error("Failed to get response");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleFileUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      setIsIndexing(true);
-
-      const res = await axios.post(
-        `${API_BASE}/api/upload`,
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        }
-      );
-
-      toast.success(res.data.message);
-      setUploadedFiles((prev) => [...prev, file.name]);
-    } catch (error) {
-      toast.error("Upload failed");
-    } finally {
-      setIsIndexing(false);
-    }
-  };
-
-  // ✅ Real voice input
-  const startVoiceInput = () => {
     const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      toast.error("Speech recognition not supported");
+      toast.error("Voice recognition not supported");
       return;
     }
 
     const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
     recognition.start();
     setIsRecording(true);
 
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
+    recognition.onresult = (e: any) => {
+      const text = e.results[0][0].transcript;
+      setInput((prev) => prev + (prev ? " " : "") + text);
       setIsRecording(false);
     };
 
-    recognition.onerror = () => {
-      setIsRecording(false);
-      toast.error("Voice recognition failed");
-    };
+    recognition.onerror = () => setIsRecording(false);
+    recognition.onend = () => setIsRecording(false);
   };
 
+  // Send Message
+  const sendMessage = async () => {
+    if (!input.trim()) return;
+
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      type: "user",
+      content: input,
+      time,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    const query = input;
+    setInput("");
+
+    const steps = ["Analyzing documents...", "Searching knowledge base...", "Generating response..."];
+    let stepIndex = 0;
+    const interval = setInterval(() => {
+      setThinkingStep(steps[stepIndex % steps.length]);
+      stepIndex++;
+    }, 1000);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/query-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+
+      const reader = response.body?.getReader();
+      let botText = "";
+      const botId = (Date.now() + 1).toString();
+
+      setMessages((prev) => [
+        ...prev,
+        { id: botId, type: "bot", content: "", time },
+      ]);
+
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
+        const chunk = new TextDecoder().decode(value);
+        botText += chunk;
+
+        setMessages((prev) =>
+          prev.map((m) => (m.id === botId ? { ...m, content: botText } : m))
+        );
+      }
+    } catch (err) {
+      toast.error("Failed to get response");
+    } finally {
+      clearInterval(interval);
+      setThinkingStep("");
+    }
+  };
+
+  // File Upload
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const form = new FormData();
+    form.append("file", file);
+
+    try {
+      await fetch(`${API_BASE}/api/upload`, { method: "POST", body: form });
+      setUploadedFiles((prev) => [...prev, file.name]);
+      toast.success(`${file.name} uploaded successfully`);
+    } catch {
+      toast.error("Upload failed");
+    }
+  };
+
+  const copyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied!");
+  };
+
+  const suggestions = [
+    "Summarize the main points from the uploaded documents",
+    "What are the key findings in the research papers?",
+    "Explain the concepts in simple terms",
+    "Compare the different approaches mentioned",
+  ];
+
   return (
-    <div className="flex h-screen bg-gray-950 text-white">
-      <Toaster />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 text-slate-900">
+      <Toaster position="top-center" />
 
-      {/* Sidebar */}
-      <div className="w-80 border-r border-gray-800 bg-gray-900 flex flex-col">
-        <div className="p-6 border-b border-gray-800">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-500 bg-clip-text text-transparent flex items-center gap-3">
-            <Bot /> RAG Assistant
-          </h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Your Personal Document Intelligence
-          </p>
-        </div>
-
-        <div className="p-6">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-3 bg-violet-600 hover:bg-violet-700 py-3 px-4 rounded-xl"
-          >
-            <Upload size={20} />
-            Upload Document
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            onChange={handleFileUpload}
-          />
-
-          {isIndexing && (
-            <p className="text-yellow-400 text-sm mt-3">
-              Processing document...
-            </p>
-          )}
-        </div>
-
-        <div className="px-6">
-          <h3 className="text-xs text-gray-500 mb-2">
-            Uploaded Files
-          </h3>
-          {uploadedFiles.map((f, i) => (
-            <div key={i} className="flex gap-2 text-sm text-gray-400">
-              <FileText size={16} />
-              {f}
-            </div>
-          ))}
-        </div>
+      {/* Background Glow */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-40 w-[600px] h-[600px] bg-blue-200/40 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-[700px] h-[700px] bg-purple-200/30 rounded-full blur-3xl" />
       </div>
 
-      {/* Chat */}
-      <div className="flex-1 flex flex-col">
-        <div
-          ref={chatContainerRef}
-          className="flex-1 overflow-y-auto p-6 space-y-6"
-        >
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${
-                msg.type === "user"
-                  ? "justify-end"
-                  : "justify-start"
-              }`}
-            >
-              <div
-                className={`max-w-2xl ${
-                  msg.type === "user"
-                    ? "bg-violet-600"
-                    : "bg-gray-900"
-                } rounded-2xl p-4`}
-              >
-                <div className="prose prose-invert max-w-none">
-                  <ReactMarkdown>
-                  {msg.content}
-                  </ReactMarkdown>
-                </div>
-
-                {/* Citations */}
-                {msg.citations && (
-                  <div className="mt-3 space-y-2">
-                    {msg.citations.map((c, i) => (
-                      <div
-                        key={i}
-                        className="bg-gray-800 p-2 rounded text-xs"
-                      >
-                        {c.source} • Page {c.page} •{" "}
-                        {(c.score * 100).toFixed(1)}%
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="text-gray-400">Thinking...</div>
-          )}
+      {/* Navbar */}
+      <nav className="relative z-10 flex items-center justify-between px-8 py-6 border-b border-slate-100">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-blue-600 rounded-2xl flex items-center justify-center">
+            <Sparkles className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-3xl font-semibold tracking-tight">RAG Assistant</h1>
         </div>
+      </nav>
 
-        {/* Input */}
-        <div className="p-4 border-t border-gray-800 flex gap-3">
-          <button
-            onClick={startVoiceInput}
-            className="p-3 bg-gray-800 rounded-xl"
-          >
-            <Mic
-              className={isRecording ? "text-red-500" : ""}
-            />
-          </button>
+      <div className="max-w-5xl mx-auto px-6 pt-12 pb-24">
+        {/* Hero */}
+        {messages.length === 0 && (
+          <div className="text-center mb-16">
+            <h1 className="text-6xl font-semibold tracking-tighter mb-6">
+              Ask anything about your documents
+            </h1>
+            <p className="text-2xl text-slate-600">
+              Powered by Local RAG • Instant & Accurate
+            </p>
+          </div>
+        )}
 
+        {/* Chat Area */}
+        {messages.length > 0 && (
+          <div ref={chatRef} className="h-[65vh] overflow-y-auto mb-10 space-y-8 pr-6">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.type === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[75%] px-7 py-5 rounded-3xl ${
+                    msg.type === "user"
+                      ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                      : "bg-white border border-slate-100 shadow"
+                  }`}
+                >
+                  <div className="prose prose-slate max-w-none">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+
+                  <div className="flex justify-between items-center mt-4 text-xs text-slate-400">
+                    <span>{msg.time}</span>
+                    {msg.type === "bot" && (
+                      <button onClick={() => copyText(msg.content)} className="hover:text-slate-600">
+                        <Copy size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {thinkingStep && (
+              <div className="pl-4 text-blue-600 font-medium animate-pulse">{thinkingStep}</div>
+            )}
+          </div>
+        )}
+
+        {/* Input Area - Updated Layout */}
+        <div className="relative">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-2">
+            <div className="flex items-center gap-3 bg-slate-50 rounded-2xl px-5 py-5">
+              {/* + Upload Button - Left Side */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-3 hover:bg-slate-100 rounded-xl transition text-slate-600 hover:text-slate-900"
+                title="Upload Document"
+              >
+                <Plus size={26} strokeWidth={2.5} />
+              </button>
+
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                className="flex-1 bg-transparent text-lg outline-none placeholder-slate-400"
+                placeholder="Type your question here..."
+              />
+
+              {/* Voice Button */}
+              <button
+                onClick={handleVoiceToggle}
+                className={`p-3 rounded-xl transition ${
+                  isRecording ? "bg-red-100 text-red-600 animate-pulse" : "hover:bg-slate-100 text-slate-600"
+                }`}
+              >
+                <Mic size={26} />
+              </button>
+
+              {/* Send Button */}
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim()}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-3.5 rounded-2xl hover:scale-105 transition disabled:opacity-50"
+              >
+                <Send size={24} />
+              </button>
+            </div>
+          </div>
+
+          {/* Hidden File Input */}
           <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" && sendMessage()
-            }
-            className="flex-1 bg-gray-800 px-4 py-2 rounded-xl"
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={handleUpload}
           />
 
-          <button
-  onClick={() => {
-    console.log("BUTTON CLICKED"); // 👈 MUST PRINT
-    sendMessage();
-  }}
-  className="bg-violet-600 px-4 rounded-xl"
->
-  <Send />
-</button>
-
-          <button
-            onClick={() => setMessages([])}
-            className="text-red-400 text-sm"
-          >
-            Clear
-          </button>
+          {/* Suggestion Cards */}
+          {messages.length === 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+              {suggestions.map((suggestion, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    setInput(suggestion);
+                    setTimeout(sendMessage, 100);
+                  }}
+                  className="text-left p-6 bg-white border border-slate-100 hover:border-slate-200 rounded-2xl hover:shadow transition"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

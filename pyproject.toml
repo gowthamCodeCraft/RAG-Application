@@ -3,20 +3,26 @@ name = "rag-application"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "chromadb>=1.5.7",
     "faiss-cpu>=1.13.2",
+    "fastapi>=0.136.1",
     "ipykernel>=7.2.0",
     "langchain>=1.2.15",
     "langchain-community>=0.4.1",
     "langchain-core>=1.2.28",
+    "langchain-experimental>=0.4.1",
     "langchain-groq>=1.1.2",
     "langchain-huggingface>=1.2.1",
+    "langchain-pinecone>=0.2.13",
     "langchain-text-splitters>=1.1.1",
+    "pinecone-client>=6.0.0",
+    "pinecone-text>=0.11.0",
     "pymupdf>=1.27.2.2",
     "pypdf>=6.9.2",
     "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.27",
     "sentence-transformers>=5.4.0",
     "typesense>=2.0.0",
 ]

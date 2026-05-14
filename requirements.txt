@@ -13,3 +13,8 @@ typesense
 langchain-huggingface
 fastapi
 python-multipart
+pinecone-client
+pinecone-text
+langchain-pinecone
+langchain-experimental
+

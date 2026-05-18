@@ -1,57 +1,75 @@
 from pathlib import Path
-from typing import List, Dict, Any
-from langchain_community.document_loaders import TextLoader, PyPDFLoader, CSVLoader
-from langchain_community. document_loaders import Docx2txtLoader
-from langchain_community.document_loaders import UnstructuredExcelLoader
+from typing import List, Any
+from langchain_community.document_loaders import (
+    PyMuPDFLoader,
+    TextLoader,
+    CSVLoader,
+    Docx2txtLoader,
+    UnstructuredExcelLoader,
+    JSONLoader,
+)
 
-def load_all_docs(data_dir:str) -> list[Any]:
+
+def load_single_file(file_path: str) -> List[Any]:
     """
-    Load all documents from the specified directory and its subdirectories.
-    Supported file types include .txt, .pdf, .docx, .xlsx, and .json.
-
+    Load a SINGLE file and return LangChain Document objects.
+    Enriches metadata with source filename and page info.
     """
+    path = Path(file_path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
 
+    ext = path.suffix.lower()
+    loader = None
+
+    if ext == ".pdf":
+        loader = PyMuPDFLoader(str(path))
+    elif ext == ".txt":
+        loader = TextLoader(str(path), encoding="utf-8")
+    elif ext == ".docx":
+        loader = Docx2txtLoader(str(path))
+    elif ext == ".csv":
+        loader = CSVLoader(str(path))
+    elif ext == ".xlsx":
+        loader = UnstructuredExcelLoader(str(path), mode="elements")
+    elif ext == ".json":
+        loader = JSONLoader(str(path), jq_schema=".[]", text_content=False)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+    docs = loader.load()
+
+    # Enrich metadata
+    for i, doc in enumerate(docs):
+        if doc.metadata is None:
+            doc.metadata = {}
+        doc.metadata["source"] = path.name
+        # Normalize page metadata across loaders
+        if "page" not in doc.metadata:
+            doc.metadata["page"] = doc.metadata.get("page_number", i + 1)
+        doc.metadata["doc_index"] = i
+
+    print(f"[LOADER] {path.name}: {len(docs)} pages/records loaded")
+    return docs
+
+
+def load_all_docs(data_dir: str = "data/uploads") -> List[Any]:
+    """
+    Load ALL supported documents from directory (used for full rebuilds only).
+    """
     data_path = Path(data_dir).resolve()
-    print(f"Loading documents from: {data_path}")
+    print(f"[LOADER] Scanning directory: {data_path}")
+
     all_docs = []
-    
-    #load pdf files
-    pdf_files = list(data_path.glob("**/*.pdf"))
-    print(f"[Debug] found {len(pdf_files)} PDF files: {[str(f) for f in pdf_files]}")
-    for pdf_file in pdf_files:
-        print(f"[Debug] loading PDF file: {pdf_file}")
-        try:
-            pdf_loader = PyPDFLoader(str(pdf_file))
-            loaded_docs = pdf_loader.load()
-            print(f"[Debug] loaded {len(loaded_docs)} documents from {pdf_file}")
-            all_docs.extend(loaded_docs)
-        except Exception as e:
-            print(f"[Error] Failed to load PDF file: {pdf_file}, Error: {e}")
+    supported = {".pdf", ".txt", ".docx", ".xlsx", ".csv", ".json"}
 
-    # #load text files
-    # text_files = list(data_path.glob("**/*.txt"))
-    # print(f"[Debug] found {len(text_files)} text_files: {[str(f) for f in text_files]}")
-    # for text_file in text_files:
-    #     print(f"[Debug] loading text file: {text_file}")
-    #     try:
-    #         text_loader = TextLoader(str(text_file))
-    #         loaded_docs = text_loader.load()
-    #         print(f"[Debug] loaded {len(loaded_docs)} documents from {text_file}")
-    #         all_docs.extend(loaded_docs)
-    #     except Exception as e:
-    #         print(f"[Error] Failed to load text file: {text_file}, Error: {e}")
+    for file_path in data_path.glob("**/*"):
+        if file_path.is_file() and file_path.suffix.lower() in supported:
+            try:
+                docs = load_single_file(str(file_path))
+                all_docs.extend(docs)
+            except Exception as e:
+                print(f"[LOADER] Failed {file_path.name}: {e}")
 
-    # load csv files
-    csv_files = list(data_path.glob("**/*.csv"))
-    print(f"[Debug] Found {len(csv_files)} csv files: {[str(f) for f in csv_files]}")
-    for csv_file in csv_files:
-        print(f"[Debug] loading csv file: {csv_file}")
-        try:
-            csv_loader = CSVLoader(str(csv_file))
-            loaded_docs = csv_loader.load()
-            print(f"[Debug] loaded {len(loaded_docs)} from {csv_file}")
-            all_docs.extend(loaded_docs)
-        except Exception as e:
-            print(f"[Error] Failed to load csv file: {csv_file}, Error: {e}")
-
+    print(f"[LOADER] Total loaded: {len(all_docs)} documents from all files")
     return all_docs

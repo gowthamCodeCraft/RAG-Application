@@ -1,5 +1,5 @@
-import os
 from pinecone import Pinecone, ServerlessSpec
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -10,10 +10,13 @@ index_name = "rag-hybrid-index"
 if index_name not in pc.list_indexes().names():
     pc.create_index(
         name=index_name,
-        dimension = 384,
-        metric= "dotproduct",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        dimension=1024,  # IMPORTANT for bge-m3
+        metric="dotproduct",
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-east-1"
+        )
     )
-    print(f"[INFO] Index {index_name} Created Successfully!!!")
+    print("Index created successfully")
 else:
-    print(f"[INFO] Index {index_name} already exists")
+    print("Index already exists")

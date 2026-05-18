@@ -3,11 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "client": "cd frontend && npm run dev",
-    "server": "cd backend && uvicorn main:app --reload --port 8000",
+    "dev": "echo === RAG Assistant === && echo Open TWO separate terminals: && echo. && echo   Terminal 1: cd backend ^&^& uvicorn main:app --reload --port 8000 && echo   Terminal 2: cd frontend ^&^& npm run dev && echo. && echo Or run: npm run dev:windows",
+    
+    "dev:windows": "start cmd /k \"cd backend && uvicorn main:app --reload --port 8000\" && start cmd /k \"cd frontend && npm run dev\"",
+    
+    "dev:server": "cd backend && uvicorn main:app --reload --port 8000",
     "dev:client": "cd frontend && npm run dev",
-    "dev:server": "cd backend && uvicorn main:app --reload --port 8000"
+    
+    "build": "cd frontend && npm run build",
+    
+    "server": "cd backend && gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app",
+    "start": "npm run server",
+    
+    "kill": "node scripts/kill-all.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

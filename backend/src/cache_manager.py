@@ -37,11 +37,11 @@ class RAGCache:
         """Attempt Redis connection with multiple fallback strategies."""
         urls_to_try = []
 
-        # Priority 1: Explicit URL from constructor
+        # Explicit URL from constructor
         if self.redis_url:
             urls_to_try.append(self.redis_url)
 
-        # Priority 2: Environment variables (cloud deployments)
+        # Environment variables (cloud deployments)
         env_urls = [
             os.getenv("REDIS_URL"),
             os.getenv("REDISCLOUD_URL"),
@@ -50,7 +50,7 @@ class RAGCache:
         ]
         urls_to_try.extend([u for u in env_urls if u])
 
-        # Priority 3: Local defaults
+        # Local defaults
         urls_to_try.extend([
             "redis://localhost:6379/0",
             "redis://127.0.0.1:6379/0",

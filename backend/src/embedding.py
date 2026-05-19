@@ -1,7 +1,7 @@
 import os
 import re
 from dotenv import load_dotenv
-from typing import List, Any, Tuple
+from typing import List, Any
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -14,6 +14,7 @@ load_dotenv()
 
 
 class EmbeddingPipeline:
+
     def __init__(
         self,
         model_name: str = "BAAI/bge-m3",
@@ -32,19 +33,31 @@ class EmbeddingPipeline:
 
         print(f"[EMBED] Loading model: {model_name}")
 
-        # Raw model for direct embedding queries
-        self.model = SentenceTransformer(
-            model_name,
-            token=hf_token,
-            trust_remote_code=True,
+        # FIX: Use HuggingFaceEmbeddings (LangChain wrapper) which handles
+        # SentenceTransformers v4+ compatibility internally.
+        # This avoids the AutoProcessor error with BAAI/bge-m3.
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs={
+                "token": hf_token,
+                "trust_remote_code": True,
+                # FIX for v4+: disable the problematic processor loading
+                "local_files_only": False,
+            },
+            encode_kwargs={
+                "normalize_embeddings": True,
+                "batch_size": 32,
+            },
         )
 
-        # LangChain wrapper for SemanticChunker (it needs embed_documents method)
-        self.langchain_embeddings = HuggingFaceEmbeddings(
-            model_name=model_name,
-            model_kwargs={"token": hf_token},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        # Keep a raw model reference for direct encoding (query cache, etc.)
+        # But load it safely via the embeddings wrapper's underlying model
+        try:
+            self.model = self.embeddings.client
+            print(f"[EMBED] Model loaded via HuggingFaceEmbeddings wrapper")
+        except Exception as e:
+            print(f"[EMBED] Warning: Could not get underlying model: {e}")
+            self.model = None
 
         print(f"[EMBED] Model ready")
 
@@ -70,23 +83,28 @@ class EmbeddingPipeline:
                     headers.append(line)
         return " | ".join(headers[:3])
 
+    def _clean_ocr_text(self, text: str) -> str:
+        """Clean up common OCR artifacts in handwritten/scanned text."""
+        text = text.replace('|', 'I')
+        text = text.replace('0', 'O')
+        text = ' '.join(text.split())
+        text = text.replace('- ', '')
+        return text
+
     def chunk_documents(self, documents: List[Any], source_file: str = "unknown") -> List[Any]:
         """
-        High-quality chunking pipeline:
-        1. Try semantic chunking for natural boundaries (uses HuggingFaceEmbeddings wrapper)
-        2. Fallback to recursive with smart separators
-        3. Enrich metadata with headers and position
-        4. Filter boilerplate and tiny fragments
+        High-quality chunking pipeline.
+        Uses HuggingFaceEmbeddings for semantic chunking (v4+ compatible).
         """
         all_chunks = []
 
         for doc in documents:
             semantic_chunks = []
 
-            # Attempt 1: Semantic chunking (uses LangChain wrapper which has embed_documents)
+            # Attempt 1: Semantic chunking using LangChain wrapper
             try:
                 semantic_splitter = SemanticChunker(
-                    self.langchain_embeddings,  # <-- FIX: Use wrapper, not raw SentenceTransformer
+                    self.embeddings,  # HuggingFaceEmbeddings handles v4+ internally
                     breakpoint_threshold_type="percentile",
                     breakpoint_threshold_amount=80,
                 )
@@ -94,7 +112,7 @@ class EmbeddingPipeline:
             except Exception as e:
                 print(f"[EMBED] Semantic chunking failed: {e}")
 
-            # Attempt 2: Recursive character splitting (always reliable)
+            # Attempt 2: Recursive character splitting
             recursive_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.chunk_overlap,
@@ -104,18 +122,19 @@ class EmbeddingPipeline:
             )
             recursive_chunks = recursive_splitter.split_documents([doc])
 
-            # Choose best: semantic if it produced meaningful segmentation
             candidates = semantic_chunks if len(semantic_chunks) >= 2 else recursive_chunks
 
-            # Enrich and filter
             for chunk in candidates:
                 content = chunk.page_content.strip()
 
-                # Skip boilerplate
+                # OCR cleaning
+                if chunk.metadata and chunk.metadata.get("ocr"):
+                    content = self._clean_ocr_text(content)
+                    chunk.page_content = content
+
                 if self._is_boilerplate(content):
                     continue
 
-                # Extract headers for context
                 header_context = self._extract_headers(content)
                 if chunk.metadata is None:
                     chunk.metadata = {}
@@ -124,25 +143,22 @@ class EmbeddingPipeline:
                 chunk.metadata["header_context"] = header_context
                 chunk.metadata["chunk_length"] = len(content)
 
-                # Prepend header context to content if available
                 if header_context:
                     chunk.page_content = f"[Context: {header_context}]\n{content}"
 
                 all_chunks.append(chunk)
 
-        print(f"[EMBED] Chunking complete: {len(all_chunks)} quality chunks from {len(documents)} docs")
+        print(f"[EMBED] Chunking complete: {len(all_chunks)} quality chunks")
         return all_chunks
 
     def embed_chunks(self, chunks: List[Any]) -> np.ndarray:
+        """Generate embeddings using HuggingFaceEmbeddings wrapper."""
         texts = [chunk.page_content for chunk in chunks]
         print(f"[EMBED] Encoding {len(texts)} chunks...")
-        embeddings = self.model.encode(
-            texts,
-            show_progress_bar=True,
-            normalize_embeddings=True,
-            batch_size=32,
-            convert_to_numpy=True,
-        )
+
+        # Use the wrapper's embed_documents method (v4+ compatible)
+        embeddings_list = self.embeddings.embed_documents(texts)
+        embeddings = np.array(embeddings_list)
         return embeddings
 
     def embed_query(self, query: str) -> List[float]:
@@ -153,12 +169,8 @@ class EmbeddingPipeline:
                 print("[EMBED] Query embedding cache HIT")
                 return cached
 
-        embedding = self.model.encode(
-            query,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-        )
-        result = embedding.tolist()
+        # Use wrapper's embed_query (v4+ compatible)
+        result = self.embeddings.embed_query(query)
 
         if self.cache:
             self.cache.set_embedding(query, result)

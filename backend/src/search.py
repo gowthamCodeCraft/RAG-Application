@@ -7,6 +7,7 @@ from src.vector_store import PineconeHybridVectorStore
 from src.advanced_rag import AdvancedRag
 from src.cache_manager import RAGCache
 from src.file_tracker import FileTracker
+from src.multimodel_data_loader import MultimodelDocumentProcessor
 from langchain_groq import ChatGroq
 
 load_dotenv()
@@ -18,6 +19,7 @@ class RAGSearch:
         index_name: str = "rag-hybrid-index",
         embedding_model: str = "BAAI/bge-m3",
         llm_model: str = "llama-3.3-70b-versatile",
+        vision_llm=None,
     ):
         print("\n" + "="*50)
         print("[INIT] RAGSearch Initializing")
@@ -27,10 +29,13 @@ class RAGSearch:
         self.embedding_model = embedding_model
         self.llm_model = llm_model
 
-        # Cache (optional, non-blocking)
+        # Cache
         self.cache = RAGCache()
 
-        # Vector Store (eager init — loads embedding model NOW)
+        # Multimodal processor (handles PDFs, images, OCR, vision)
+        self.multimodal_processor = MultimodelDocumentProcessor(vision_llm=vision_llm)
+
+        # Vector Store
         print("[INIT] Loading Pinecone Hybrid Vector Store...")
         self.vector_store = PineconeHybridVectorStore(
             index_name=index_name,
@@ -38,7 +43,7 @@ class RAGSearch:
             cache=self.cache,
         )
 
-        # LLM (eager init — validates API key NOW)
+        # LLM
         groq_api_key = os.getenv("GROQ_API_KEY")
         if groq_api_key:
             print(f"[INIT] Loading LLM: {llm_model}...")
@@ -58,46 +63,36 @@ class RAGSearch:
         self.is_ready = False
         self.file_tracker = FileTracker()
 
-        # If we have previously indexed files, rebuild retriever and RAG
+        # Restore from previous session
         existing_files = self.file_tracker.get_all_filenames()
         if existing_files:
-            print(f"[INIT] Found {len(existing_files)} previously indexed files: {existing_files}")
-            # Ensure BM25 is fitted (critical for retriever to work)
+            print(f"[INIT] Found {len(existing_files)} previously indexed files")
             if not self.vector_store._sparse_fitted:
-                print("[INIT] Fitting BM25 from existing vectors...")
-                # We need text to fit BM25. Since we have vectors in Pinecone but not the original text,
-                # we fit on a minimal corpus. The real fitting happens on next upload.
                 self.vector_store.sparse_encoder.fit(["document retrieval corpus"])
                 self.vector_store._sparse_fitted = True
             self.vector_store._build_retriever()
             self.rag = AdvancedRag(self.vector_store.retriever, self.llm, self.cache)
             self.is_ready = True
-            print("[INIT] RAG pipeline RESTORED from previous session")
+            print("[INIT] RAG pipeline RESTORED")
         else:
             print("[INIT] No existing index. Awaiting first upload.")
 
         print("="*50 + "\n")
 
     def add_file(self, file_path: str) -> dict:
-        """
-        Incrementally add a single file to the index.
-        Only processes THIS file, leaves all others untouched.
-        """
+        """Incrementally add a single file. Only processes THIS file."""
         print("\n" + "="*50)
         print(f"[ADD] Incremental upload: {os.path.basename(file_path)}")
         print("="*50)
 
         filename = os.path.basename(file_path)
 
-        # Check if already indexed and unchanged
+        # Check if already indexed
         if self.file_tracker.is_indexed(file_path):
-            print(f"[ADD] File unchanged, skipping re-index: {filename}")
-            # Even if skipped, ensure system is ready
+            print(f"[ADD] File unchanged, skipping: {filename}")
             if not self.is_ready:
-                print("[ADD] System was not ready. Building retriever from existing index...")
                 if not self.vector_store._sparse_fitted:
-                    from src.data_loader import load_single_file
-                    docs = load_single_file(file_path)
+                    docs = self.multimodal_processor.load_file(file_path)
                     texts = [d.page_content for d in docs if len(d.page_content.strip()) > 50]
                     if texts:
                         self.vector_store.fit_sparse_encoder(texts)
@@ -111,34 +106,37 @@ class RAGSearch:
                 self.is_ready = True
             return {
                 "status": "skipped",
-                "message": f"{filename} already indexed (unchanged). System ready.",
+                "message": f"{filename} already indexed. System ready.",
                 "filename": filename,
             }
 
-        # If file exists but changed, remove old vectors first
+        # Remove old vectors if file changed
         if self.file_tracker.has_file(filename):
             print(f"[ADD] File changed, removing old vectors...")
             self.vector_store.remove_file(filename)
             self.cache.invalidate_query_cache()
 
         try:
-            # CRITICAL: Fit sparse encoder on first file if needed
+            # Load documents using multimodal processor
+            print(f"[ADD] Loading documents from {filename}...")
+            docs = self.multimodal_processor.load_file(file_path)
+
+            if not docs:
+                return {"status": "error", "message": "No content extracted", "filename": filename}
+
+            # Fit BM25 if needed
             if not self.vector_store._sparse_fitted:
-                print("[ADD] BM25 not fitted yet. Fitting on this file's corpus...")
-                from src.data_loader import load_single_file
-                docs = load_single_file(file_path)
                 texts = [d.page_content for d in docs if len(d.page_content.strip()) > 50]
                 if texts:
                     self.vector_store.fit_sparse_encoder(texts)
                 else:
-                    print("[ADD] Warning: No text extracted for BM25 fitting")
                     self.vector_store.sparse_encoder.fit(["document"])
                     self.vector_store._sparse_fitted = True
 
-            # Add file (chunks + embeds + upserts + tracks)
-            chunk_ids = self.vector_store.add_file(file_path)
+            # Index the documents
+            chunk_ids = self.vector_store.add_file(file_path, docs)
 
-            # Link RAG if not already
+            # Link RAG
             if not self.rag:
                 self.rag = AdvancedRag(
                     retriever=self.vector_store.retriever,
@@ -150,7 +148,6 @@ class RAGSearch:
                 self.rag.retriever = self.vector_store.retriever
                 self.is_ready = True
 
-            # Invalidate cache since index changed
             self.cache.invalidate_query_cache()
 
             return {
@@ -163,14 +160,9 @@ class RAGSearch:
         except Exception as e:
             print("\n[ERROR] Failed to add file:")
             traceback.print_exc()
-            return {
-                "status": "error",
-                "message": str(e),
-                "filename": filename,
-            }
+            return {"status": "error", "message": str(e), "filename": filename}
 
     def remove_file(self, filename: str) -> dict:
-        """Remove a file from the index."""
         try:
             self.vector_store.remove_file(filename)
             self.cache.invalidate_query_cache()

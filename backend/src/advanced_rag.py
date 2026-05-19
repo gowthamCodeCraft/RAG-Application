@@ -74,7 +74,7 @@ class AdvancedRag:
             "source_count": len(sources),
         }
 
-    # ================= FIX: Use invoke() for all retrievers =================
+    # Use invoke() for all retrievers
     def _retrieve(self, question: str) -> List[Any]:
         """
         Universal retrieval method.
@@ -97,7 +97,6 @@ class AdvancedRag:
     ) -> Dict[str, Any]:
         print("\n" + "="*50)
         print(f"[QUERY] {question}")
-        print("="*50)
 
         # Check cache
         if self.cache:

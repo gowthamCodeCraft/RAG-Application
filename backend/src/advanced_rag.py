@@ -1,9 +1,7 @@
 import hashlib
 from typing import List, Dict, Any, Optional, Generator
 from langchain_core.messages import HumanMessage
-
 from src.cache_manager import RAGCache
-
 
 class AdvancedRag:
     def __init__(self, retriever, llm, cache: RAGCache = None):
@@ -56,6 +54,7 @@ class AdvancedRag:
         return "\n\n---\n\n".join(context_parts), sources
 
     def _detect_empty_context(self, context: str, sources: List[dict]) -> dict:
+
         """Diagnose why context might be empty or useless."""
         issues = []
         if not context.strip():
@@ -95,7 +94,6 @@ class AdvancedRag:
         min_score: float = 0.0,
         summarize: bool = False,
     ) -> Dict[str, Any]:
-        print("\n" + "="*50)
         print(f"[QUERY] {question}")
 
         # Check cache

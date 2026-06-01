@@ -15,3 +15,4 @@ wheels/
 #folders
 notebook/
 node_modules/
+backend/data/

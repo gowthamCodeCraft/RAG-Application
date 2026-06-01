@@ -21,9 +21,7 @@ class RAGSearch:
         llm_model: str = "llama-3.3-70b-versatile",
         vision_llm=None,
     ):
-        print("\n" + "="*50)
         print("[INIT] RAGSearch Initializing")
-        print("="*50)
 
         self.index_name = index_name
         self.embedding_model = embedding_model
@@ -32,7 +30,7 @@ class RAGSearch:
         # Cache
         self.cache = RAGCache()
 
-        # Multimodal processor (handles PDFs, images, OCR, vision)
+        # Multimodal processor handles PDFs, images, OCR, vision
         self.multimodal_processor = MultimodelDocumentProcessor(vision_llm=vision_llm)
 
         # Vector Store
@@ -77,13 +75,11 @@ class RAGSearch:
         else:
             print("[INIT] No existing index. Awaiting first upload.")
 
-        print("="*50 + "\n")
 
     def add_file(self, file_path: str) -> dict:
+
         """Incrementally add a single file. Only processes THIS file."""
-        print("\n" + "="*50)
         print(f"[ADD] Incremental upload: {os.path.basename(file_path)}")
-        print("="*50)
 
         filename = os.path.basename(file_path)
 

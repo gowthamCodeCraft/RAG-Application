@@ -52,15 +52,15 @@ class RAGCache:
 
         # Local defaults
         urls_to_try.extend([
-            "redis://localhost:6379/0",
+            "redis://localhost:6379/0", 
             "redis://127.0.0.1:6379/0",
         ])
 
         for url in urls_to_try:
             try:
 
-                # Handle TLS/SSL connections (Redis Cloud, AWS ElastiCache)
-                if url.startswith("rediss://") or ":6380" in url or "ssl" in url.lower():
+                # Handle Redis Cloud
+                if url.startswith("redis://") or ":6380" in url or "ssl" in url.lower():
                     self.client = redis_lib.from_url(
                         url,
                         decode_responses=True,
@@ -78,14 +78,14 @@ class RAGCache:
 
                 self.client.ping()
                 self.enabled = True
-                print(f"[CACHE] ✅ Redis connected: {url.split("@")[-1] if "@" in url else url}")
+                print(f"[CACHE] Redis connected: {url.split("@")[-1] if "@" in url else url}")
                 return
 
             except Exception as e:
-                print(f"[CACHE] ❌ Failed: {url.split("@")[-1] if "@" in url else url} — {str(e)[:60]}")
+                print(f"[CACHE] Failed: {url.split("@")[-1] if "@" in url else url} — {str(e)[:60]}")
                 continue
 
-        print("[CACHE] ⚠️ No Redis available. Running WITHOUT cache (slower but functional).")
+        print("[CACHE] No Redis available. Running WITHOUT cache.")
         self.enabled = False
 
     def _key(self, prefix: str, data: str) -> str:
@@ -100,7 +100,7 @@ class RAGCache:
             key = self._key("query", f"{query}:{top_k}")
             val = self.client.get(key)
             if val:
-                print(f"[CACHE] ✅ Query cache HIT")
+                print(f"[CACHE] Query cache HIT")
                 return json.loads(val)
         except Exception as e:
             print(f"[CACHE] Read error (ignoring): {e}")
@@ -117,7 +117,7 @@ class RAGCache:
                 "retrieved_count": result.get("retrieved_count", 0),
             }
             self.client.setex(key, self.ttl_query, json.dumps(cache_payload))
-            print(f"[CACHE] 💾 Query cached (TTL {self.ttl_query}s)")
+            print(f"[CACHE] Query cached (TTL {self.ttl_query}s)")
         except Exception as e:
             print(f"[CACHE] Write error (ignoring): {e}")
 
@@ -129,7 +129,7 @@ class RAGCache:
             for key in self.client.scan_iter(match="rag:query:*"):
                 self.client.delete(key)
                 count += 1
-            print(f"[CACHE] 🗑️ Invalidated {count} query cache entries")
+            print(f"[CACHE] Invalidated {count} query cache entries")
         except Exception as e:
             print(f"[CACHE] Invalidation error: {e}")
 
